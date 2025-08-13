@@ -13,7 +13,7 @@ import type {
 import { z } from 'zod'
 import { getVersion } from '../lib/getVersion.js'
 import { Logger } from '../types.js'
-import { WebSocketServerTransport } from '../server/websocket.js'
+import { WebSocketServerTransport } from '../transports/websocket.js'
 import { onSignals } from '../lib/onSignals.js'
 import { serializeCorsOrigin } from '../lib/serializeCorsOrigin.js'
 
