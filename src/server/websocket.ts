@@ -17,22 +17,10 @@ export class WebSocketServerTransport implements Transport {
   onconnection?: (clientId: string) => void
   ondisconnection?: (clientId: string) => void
 
-  set onmessage(handler: ((message: JSONRPCMessage) => void) | undefined) {
+  set onmessage(
+    handler: ((msg: JSONRPCMessage, clientId: string) => void) | undefined,
+  ) {
     this.messageHandler = handler
-      ? (msg, clientId) => {
-          // @ts-ignore
-          if (msg.id === undefined) {
-            console.log('Broadcast message:', msg)
-            return handler(msg)
-          }
-          // @ts-ignore
-          return handler({
-            ...msg,
-            // @ts-ignore
-            id: clientId + ':' + msg.id,
-          })
-        }
-      : undefined
   }
 
   constructor({ path, server }: { path: string; server: Server }) {
@@ -70,28 +58,18 @@ export class WebSocketServerTransport implements Transport {
 
   async send(
     msg: JSONRPCMessage,
-    options?: TransportSendOptions | string,
+    options?: TransportSendOptions,
   ): Promise<void> {
-    // decide if they passed a raw clientId (legacy) or options object
-    const clientId = typeof options === 'string' ? options : undefined
-
-    // if your protocol mangles IDs to include clientId, strip it off
-    const [cId, rawId] = clientId?.split(':') ?? []
-    if (rawId !== undefined) {
-      // @ts-ignore
-      msg.id = parseInt(rawId, 10)
-    }
-
+    const clientId = options?.clientId
     const payload = JSON.stringify(msg)
 
-    if (cId) {
-      // send only to the one client
-      const ws = this.clients.get(cId)
+    if (clientId) {
+      const ws = this.clients.get(clientId)
       if (ws?.readyState === WebSocket.OPEN) {
         ws.send(payload)
       } else {
-        this.clients.delete(cId)
-        this.ondisconnection?.(cId)
+        this.clients.delete(clientId)
+        this.ondisconnection?.(clientId)
       }
     } else {
       // broadcast to everyone

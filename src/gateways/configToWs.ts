@@ -133,22 +133,7 @@ export async function configToWs(args: ConfigToWsArgs) {
 
     await server.connect(wsTransport)
 
-    wsTransport.onmessage = async (message: JSONRPCMessage) => {
-      // Extract client ID from the modified message ID
-      const messageId = (message as any).id
-      let clientId: string | undefined
-      let originalId: string | number | undefined
-
-      if (typeof messageId === 'string' && messageId.includes(':')) {
-        const parts = messageId.split(':')
-        clientId = parts[0]
-        originalId = parts.slice(1).join(':')
-        // Restore original ID for the request
-        ;(message as any).id = isNaN(Number(originalId))
-          ? originalId
-          : Number(originalId)
-      }
-
+    wsTransport.onmessage = async (message: JSONRPCMessage, clientId: string) => {
       const isRequest = 'method' in message && 'id' in message
       if (isRequest) {
         logger.info(`WebSocket → Servers (client ${clientId}):`, message)
@@ -160,7 +145,7 @@ export async function configToWs(args: ConfigToWsArgs) {
           logger.info(`Servers → WebSocket (client ${clientId}):`)
           logger.debug(`Servers → WebSocket (client ${clientId}):`, response)
 
-          await wsTransport!.send(response, clientId)
+          await wsTransport!.send(response, { clientId })
         } catch (err) {
           logger.error(`Error handling request from client ${clientId}:`, err)
           const errorResponse = {
@@ -172,7 +157,7 @@ export async function configToWs(args: ConfigToWsArgs) {
             },
           }
           try {
-            await wsTransport!.send(errorResponse, clientId)
+            await wsTransport!.send(errorResponse, { clientId })
           } catch (sendErr) {
             logger.error(
               `Failed to send error response to client ${clientId}:`,

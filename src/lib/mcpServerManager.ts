@@ -241,158 +241,8 @@ export class McpServerManager {
       }
     }
 
-    if (method === 'tools/call') {
-      const toolName = params?.name as string
-      if (!toolName) {
-        return {
-          jsonrpc: '2.0',
-          id,
-          error: {
-            code: -32602,
-            message: 'Tool name is required',
-          },
-        } as any
-      }
-
-      let serverName: string
-      let originalToolName: string
-
-      if (toolName.includes('.')) {
-        // Tool name includes server prefix
-        ;[serverName, originalToolName] = toolName.split('.', 2)
-      } else {
-        // No server prefix, find which server has this tool
-        let foundServer: string | null = null
-        for (const [sName, server] of this.servers) {
-          if (
-            server.connected &&
-            server.tools.some((tool) => tool.name === toolName)
-          ) {
-            if (foundServer) {
-              // Tool exists in multiple servers, require explicit server name
-              return {
-                jsonrpc: '2.0',
-                id,
-                error: {
-                  code: -32602,
-                  message: `Tool '${toolName}' exists in multiple servers (${foundServer}, ${sName}). Use format: servername.toolname`,
-                },
-              } as any
-            }
-            foundServer = sName
-          }
-        }
-
-        if (!foundServer) {
-          return {
-            jsonrpc: '2.0',
-            id,
-            error: {
-              code: -32601,
-              message: `Tool '${toolName}' not found in any connected server`,
-            },
-          } as any
-        }
-
-        serverName = foundServer
-        originalToolName = toolName
-      }
-
-      const server = this.servers.get(serverName)
-
-      if (!server || !server.connected) {
-        return {
-          jsonrpc: '2.0',
-          id,
-          error: {
-            code: -32601,
-            message: `Server ${serverName} not found or not connected`,
-          },
-        } as any
-      }
-
-      try {
-        const response = await server.client.request(
-          {
-            method: 'tools/call',
-            params: {
-              ...params,
-              name: originalToolName,
-            },
-          },
-          z.any(),
-        )
-        return {
-          jsonrpc: '2.0',
-          id,
-          result: response,
-        }
-      } catch (err: any) {
-        return {
-          jsonrpc: '2.0',
-          id,
-          error: {
-            code: err.code || -32000,
-            message: err.message || 'Tool call failed',
-          },
-        } as any
-      }
-    }
-
-    if (method === 'resources/read') {
-      const uri = params?.uri as string
-      if (!uri || !uri.includes('://')) {
-        return {
-          jsonrpc: '2.0',
-          id,
-          error: {
-            code: -32602,
-            message:
-              'Invalid resource URI. Expected format: servername://resource-uri',
-          },
-        } as any
-      }
-
-      const [serverName, originalUri] = uri.split('://', 2)
-      const server = this.servers.get(serverName)
-
-      if (!server || !server.connected) {
-        return {
-          jsonrpc: '2.0',
-          id,
-          error: {
-            code: -32601,
-            message: `Server ${serverName} not found or not connected`,
-          },
-        } as any
-      }
-
-      try {
-        const response = await server.client.request(
-          {
-            method: 'resources/read',
-            params: {
-              ...params,
-              uri: originalUri,
-            },
-          },
-          z.any(),
-        )
-        return {
-          jsonrpc: '2.0',
-          id,
-          result: response,
-        }
-      } catch (err: any) {
-        return {
-          jsonrpc: '2.0',
-          id,
-          error: {
-            code: err.code || -32000,
-            message: err.message || 'Resource read failed',
-          },
-        } as any
-      }
+    if (method === 'tools/call' || method === 'resources/read') {
+      return this.handleToolOrResourceRequest(request)
     }
 
     return {
@@ -403,6 +253,121 @@ export class McpServerManager {
         message: `Method not found: ${method}`,
       },
     } as any
+  }
+
+  private async handleToolOrResourceRequest(
+    request: JSONRPCRequest,
+  ): Promise<JSONRPCResponse> {
+    const { method, params, id } = request
+    const isTool = method === 'tools/call'
+    const nameOrUri = (isTool ? params?.name : params?.uri) as string
+    const nameKey = isTool ? 'name' : 'uri'
+
+    if (!nameOrUri) {
+      return {
+        jsonrpc: '2.0',
+        id,
+        error: {
+          code: -32602,
+          message: isTool ? 'Tool name is required' : 'Resource URI is required',
+        },
+      } as any
+    }
+
+    let serverName: string
+    let originalNameOrUri: string
+
+    if (isTool) {
+      if (nameOrUri.includes('.')) {
+        ;[serverName, originalNameOrUri] = nameOrUri.split('.', 2)
+      } else {
+        let foundServer: string | null = null
+        for (const [sName, server] of this.servers) {
+          if (
+            server.connected &&
+            server.tools.some((tool) => tool.name === nameOrUri)
+          ) {
+            if (foundServer) {
+              return {
+                jsonrpc: '2.0',
+                id,
+                error: {
+                  code: -32602,
+                  message: `Tool '${nameOrUri}' exists in multiple servers (${foundServer}, ${sName}). Use format: servername.toolname`,
+                },
+              } as any
+            }
+            foundServer = sName
+          }
+        }
+        if (!foundServer) {
+          return {
+            jsonrpc: '2.0',
+            id,
+            error: {
+              code: -32601,
+              message: `Tool '${nameOrUri}' not found`,
+            },
+          } as any
+        }
+        serverName = foundServer
+        originalNameOrUri = nameOrUri
+      }
+    } else {
+      if (!nameOrUri.includes('://')) {
+        return {
+          jsonrpc: '2.0',
+          id,
+          error: {
+            code: -32602,
+            message:
+              'Invalid resource URI. Expected format: servername://resource-uri',
+          },
+        } as any
+      }
+      ;[serverName, originalNameOrUri] = nameOrUri.split('://', 2)
+    }
+
+    const server = this.servers.get(serverName)
+    if (!server || !server.connected) {
+      return {
+        jsonrpc: '2.0',
+        id,
+        error: {
+          code: -32601,
+          message: `Server ${serverName} not found or not connected`,
+        },
+      } as any
+    }
+
+    try {
+      const response = await server.client.request(
+        {
+          method,
+          params: {
+            ...params,
+            [nameKey]: originalNameOrUri,
+          },
+        },
+        z.any(),
+      )
+      return {
+        jsonrpc: '2.0',
+        id,
+        result: response,
+      }
+    } catch (err: any) {
+      return {
+        jsonrpc: '2.0',
+        id,
+        error: {
+          code: err.code || -32000,
+          message:
+            err.message ||
+            (isTool ? 'Tool call failed' : 'Resource read failed'),
+        },
+      } as any
+    }
   }
 
   getServers(): Map<string, ManagedServer> {
