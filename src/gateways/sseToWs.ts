@@ -167,21 +167,11 @@ export async function sseToWs(args: SseToWsArgs) {
       ...payload,
     })
 
-    wsTransport.onmessage = async (message: JSONRPCMessage) => {
-      // Extract client ID from the modified message ID
-      const messageId = (message as any).id
-      let clientId: string | undefined
-      let originalId: string | number | undefined
-
-      if (typeof messageId === 'string' && messageId.includes(':')) {
-        const parts = messageId.split(':')
-        clientId = parts[0]
-        originalId = parts.slice(1).join(':')
-        // Restore original ID for the request
-        ;(message as any).id = isNaN(Number(originalId))
-          ? originalId
-          : Number(originalId)
-      }
+    wsTransport.onmessage = (async (
+      message: JSONRPCMessage,
+      extra: { clientId: string },
+    ) => {
+      const { clientId } = extra
 
       const isRequest = 'method' in message && 'id' in message
       if (isRequest) {
@@ -252,7 +242,7 @@ export async function sseToWs(args: SseToWsArgs) {
             },
           })
           try {
-            await wsTransport!.send(errorResp as any, clientId)
+            await wsTransport!.send(errorResp as any, { relatedRequestId: req.id })
           } catch (sendErr) {
             logger.error(
               `Failed to send error response to client ${clientId}:`,
@@ -269,7 +259,7 @@ export async function sseToWs(args: SseToWsArgs) {
         )
         logger.info(`Response (client ${clientId}):`, response)
         try {
-          await wsTransport!.send(response as any, clientId)
+          await wsTransport!.send(response as any, { relatedRequestId: req.id })
         } catch (sendErr) {
           logger.error(
             `Failed to send response to client ${clientId}:`,
@@ -279,12 +269,12 @@ export async function sseToWs(args: SseToWsArgs) {
       } else {
         logger.info(`SSE → WebSocket (client ${clientId}):`, message)
         try {
-          await wsTransport!.send(message, clientId)
+          await wsTransport!.send(message)
         } catch (sendErr) {
           logger.error(`Failed to send message to client ${clientId}:`, sendErr)
         }
       }
-    }
+    }) as any
 
     wsTransport.onconnection = (clientId: string) => {
       logger.info(`New WebSocket connection: ${clientId}`)

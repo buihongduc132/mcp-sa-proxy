@@ -86,7 +86,7 @@ export async function stdioToWs(args: StdioToWsArgs) {
           const jsonMsg = JSON.parse(line)
           logger.info(`Child → WebSocket: ${JSON.stringify(jsonMsg)}`)
           // Broadcast to all connected clients
-          wsTransport?.send(jsonMsg, jsonMsg.id).catch((err) => {
+          wsTransport?.send(jsonMsg).catch((err) => {
             logger.error('Failed to broadcast message:', err)
           })
         } catch {
@@ -128,7 +128,7 @@ export async function stdioToWs(args: StdioToWsArgs) {
 
     await server.connect(wsTransport)
 
-    wsTransport.onmessage = (msg: JSONRPCMessage) => {
+    wsTransport.onmessage = (msg) => {
       const line = JSON.stringify(msg)
       logger.info(`WebSocket → Child: ${line}`)
       child!.stdin.write(line + '\n')

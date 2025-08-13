@@ -2,7 +2,11 @@ import {
   Transport,
   TransportSendOptions,
 } from '@modelcontextprotocol/sdk/shared/transport.js'
-import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js'
+import {
+  JSONRPCMessage,
+  MessageExtraInfo,
+  RequestId,
+} from '@modelcontextprotocol/sdk/types.js'
 import { v4 as uuidv4 } from 'uuid'
 import { WebSocket, WebSocketServer } from 'ws'
 import { Server } from 'http'
@@ -10,18 +14,13 @@ import { Server } from 'http'
 export class WebSocketServerTransport implements Transport {
   private wss!: WebSocketServer
   private clients: Map<string, WebSocket> = new Map()
+  private requestClientMap: Map<RequestId, string> = new Map()
 
   onclose?: () => void
   onerror?: (err: Error) => void
-  private messageHandler?: (msg: JSONRPCMessage, clientId: string) => void
+  onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void
   onconnection?: (clientId: string) => void
   ondisconnection?: (clientId: string) => void
-
-  set onmessage(
-    handler: ((msg: JSONRPCMessage, clientId: string) => void) | undefined,
-  ) {
-    this.messageHandler = handler
-  }
 
   constructor({ path, server }: { path: string; server: Server }) {
     this.wss = new WebSocketServer({
@@ -38,8 +37,11 @@ export class WebSocketServerTransport implements Transport {
 
       ws.on('message', (data: Buffer) => {
         try {
-          const msg = JSON.parse(data.toString())
-          this.messageHandler?.(msg, clientId)
+          const msg = JSON.parse(data.toString()) as JSONRPCMessage
+          if ('id' in msg && msg.id) {
+            this.requestClientMap.set(msg.id, clientId)
+          }
+          this.onmessage?.(msg, { clientId } as any)
         } catch (err) {
           this.onerror?.(new Error(`Failed to parse message: ${err}`))
         }
@@ -60,8 +62,15 @@ export class WebSocketServerTransport implements Transport {
     msg: JSONRPCMessage,
     options?: TransportSendOptions,
   ): Promise<void> {
-    const clientId = options?.clientId
     const payload = JSON.stringify(msg)
+    let clientId: string | undefined
+
+    if (options?.relatedRequestId) {
+      clientId = this.requestClientMap.get(options.relatedRequestId)
+      if (clientId) {
+        this.requestClientMap.delete(options.relatedRequestId)
+      }
+    }
 
     if (clientId) {
       const ws = this.clients.get(clientId)

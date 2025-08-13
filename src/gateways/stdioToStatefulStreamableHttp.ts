@@ -93,22 +93,7 @@ export async function stdioToStatefulStreamableHttp(
 
   // Map to store transports by session ID
   const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {}
-
-  // Session access counter for timeout management
-  const sessionCounter = sessionTimeout
-    ? new SessionAccessCounter(
-        sessionTimeout,
-        (sessionId: string) => {
-          logger.info(`Session ${sessionId} timed out, cleaning up`)
-          const transport = transports[sessionId]
-          if (transport) {
-            transport.close()
-          }
-          delete transports[sessionId]
-        },
-        logger,
-      )
-    : null
+  const sessionCounters: { [sessionId: string]: SessionAccessCounter } = {}
 
   // Handle POST requests for client-to-server communication
   app.post(streamableHttpPath, async (req, res) => {
@@ -120,7 +105,7 @@ export async function stdioToStatefulStreamableHttp(
       // Reuse existing transport
       transport = transports[sessionId]
       // Increment session access count
-      sessionCounter?.inc(sessionId, 'POST request for existing session')
+      sessionCounters[sessionId]?.inc()
     } else if (!sessionId && isInitializeRequest(req.body)) {
       // New initialization request
 
@@ -131,11 +116,25 @@ export async function stdioToStatefulStreamableHttp(
 
       transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
-        onsessioninitialized: (sessionId) => {
+        onsessioninitialized: (newSessionId) => {
           // Store the transport by session ID
-          transports[sessionId] = transport
+          transports[newSessionId] = transport
           // Initialize session access count
-          sessionCounter?.inc(sessionId, 'session initialization')
+          if (sessionTimeout) {
+            sessionCounters[newSessionId] = new SessionAccessCounter(
+              sessionTimeout,
+              () => {
+                logger.info(`Session ${newSessionId} timed out, cleaning up`)
+                const transport = transports[newSessionId]
+                if (transport) {
+                  transport.close()
+                }
+                delete transports[newSessionId]
+                delete sessionCounters[newSessionId]
+              },
+            )
+          }
+          sessionCounters[newSessionId]?.inc()
         },
       })
       await server.connect(transport)
@@ -176,27 +175,21 @@ export async function stdioToStatefulStreamableHttp(
       }
 
       transport.onclose = () => {
-        logger.info(`StreamableHttp connection closed (session ${sessionId})`)
+        logger.info(`StreamableHttp connection closed (session ${transport.sessionId})`)
         if (transport.sessionId) {
-          sessionCounter?.clear(
-            transport.sessionId,
-            false,
-            'transport being closed',
-          )
+          sessionCounters[transport.sessionId]?.clear()
           delete transports[transport.sessionId]
+          delete sessionCounters[transport.sessionId]
         }
         child.kill()
       }
 
       transport.onerror = (err) => {
-        logger.error(`StreamableHttp error (session ${sessionId}):`, err)
+        logger.error(`StreamableHttp error (session ${transport.sessionId}):`, err)
         if (transport.sessionId) {
-          sessionCounter?.clear(
-            transport.sessionId,
-            false,
-            'transport emitting error',
-          )
+          sessionCounters[transport.sessionId]?.clear()
           delete transports[transport.sessionId]
+          delete sessionCounters[transport.sessionId]
         }
         child.kill()
       }
@@ -219,7 +212,7 @@ export async function stdioToStatefulStreamableHttp(
       if (!responseEnded && transport.sessionId) {
         responseEnded = true
         logger.info(`Response ${event}`, transport.sessionId)
-        sessionCounter?.dec(transport.sessionId, `POST response ${event}`)
+        sessionCounters[transport.sessionId]?.dec()
       }
     }
 
@@ -242,7 +235,7 @@ export async function stdioToStatefulStreamableHttp(
     }
 
     // Increment session access count
-    sessionCounter?.inc(sessionId, `${req.method} request for existing session`)
+    sessionCounters[sessionId]?.inc()
 
     // Decrement session access count when response ends
     let responseEnded = false
@@ -250,7 +243,7 @@ export async function stdioToStatefulStreamableHttp(
       if (!responseEnded) {
         responseEnded = true
         logger.info(`Response ${event}`, sessionId)
-        sessionCounter?.dec(sessionId, `${req.method} response ${event}`)
+        sessionCounters[sessionId]?.dec()
       }
     }
 
