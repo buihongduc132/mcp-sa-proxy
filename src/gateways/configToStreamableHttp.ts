@@ -14,7 +14,7 @@ import { serializeCorsOrigin } from '../lib/serializeCorsOrigin.js'
 import { Config, loadConfig } from '../lib/config.js'
 import { McpServerManager } from '../lib/mcpServerManager.js'
 import { randomUUID } from 'node:crypto'
-import { SessionAccessCounter } from '../lib/sessionAccessCounter.js'
+import { SessionManager } from '../lib/sessionManager.js'
 
 export interface ConfigToStreamableHttpArgs {
   configPath: string
@@ -224,20 +224,9 @@ export async function configToStreamableHttp(args: ConfigToStreamableHttpArgs) {
     // Stateful mode - maintain sessions
     const transports: { [sessionId: string]: StreamableHTTPServerTransport } =
       {}
-    const sessionCounter = sessionTimeout
-      ? new SessionAccessCounter(
-          sessionTimeout,
-          (sessionId: string) => {
-            logger.info(`Session ${sessionId} timed out, cleaning up`)
-            const transport = transports[sessionId]
-            if (transport) {
-              transport.close()
-            }
-            delete transports[sessionId]
-          },
-          logger,
-        )
-      : null
+    const sessionManager = stateless
+      ? null
+      : new SessionManager(sessionTimeout ?? 0)
 
     app.post(streamableHttpPath, async (req, res) => {
       const sessionId = req.headers['mcp-session-id'] as string | undefined
@@ -248,11 +237,23 @@ export async function configToStreamableHttp(args: ConfigToStreamableHttpArgs) {
         headers,
       })
 
-      if (sessionId && transports[sessionId]) {
-        // Reuse existing transport
-        transport = transports[sessionId]
-        sessionCounter?.inc(sessionId, 'POST request for existing session')
-      } else if (!sessionId && isInitializeRequest(req.body)) {
+      if (sessionId) {
+        const session = sessionManager?.getSession(sessionId)
+        if (session) {
+          transport = transports[sessionId]
+          session.inc()
+        } else {
+          res.status(400).json({
+            jsonrpc: '2.0',
+            error: {
+              code: -32000,
+              message: 'Bad Request: Invalid session ID',
+            },
+            id: null,
+          })
+          return
+        }
+      } else if (isInitializeRequest(req.body)) {
         // New initialization request
         const server = new Server(
           { name: 'mcp-superassistant-proxy', version: getVersion() },
@@ -261,16 +262,25 @@ export async function configToStreamableHttp(args: ConfigToStreamableHttpArgs) {
 
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
-          onsessioninitialized: (sessionId) => {
-            transports[sessionId] = transport
-            sessionCounter?.inc(sessionId, 'session initialization')
+          onsessioninitialized: (newSessionId) => {
+            transports[newSessionId] = transport
+            sessionManager?.createSession(newSessionId, () => {
+              logger.info(`Session ${newSessionId} timed out, cleaning up`)
+              const transport = transports[newSessionId]
+              if (transport) {
+                transport.close()
+              }
+              delete transports[newSessionId]
+            })
           },
         })
         await server.connect(transport)
 
         transport.onmessage = async (msg: JSONRPCMessage) => {
           logger.info(
-            `StreamableHttp → Servers (session ${sessionId}): ${JSON.stringify(msg)}`,
+            `StreamableHttp → Servers (session ${transport.sessionId}): ${JSON.stringify(
+              msg,
+            )}`,
           )
 
           if ('method' in msg && 'id' in msg) {
@@ -278,15 +288,17 @@ export async function configToStreamableHttp(args: ConfigToStreamableHttpArgs) {
               const response = await serverManager.handleRequest(
                 msg as JSONRPCRequest,
               )
-              logger.info(`Servers → StreamableHttp (session ${sessionId}):`)
+              logger.info(
+                `Servers → StreamableHttp (session ${transport.sessionId}):`,
+              )
               logger.debug(
-                `Servers → StreamableHttp (session ${sessionId}):`,
+                `Servers → StreamableHttp (session ${transport.sessionId}):`,
                 response,
               )
               transport.send(response)
             } catch (err) {
               logger.error(
-                `Error handling request in session ${sessionId}:`,
+                `Error handling request in session ${transport.sessionId}:`,
                 err,
               )
               const errorResponse = {
@@ -303,25 +315,22 @@ export async function configToStreamableHttp(args: ConfigToStreamableHttpArgs) {
         }
 
         transport.onclose = () => {
-          logger.info(`StreamableHttp connection closed (session ${sessionId})`)
+          logger.info(
+            `StreamableHttp connection closed (session ${transport.sessionId})`,
+          )
           if (transport.sessionId) {
-            sessionCounter?.clear(
-              transport.sessionId,
-              false,
-              'transport being closed',
-            )
+            sessionManager?.deleteSession(transport.sessionId)
             delete transports[transport.sessionId]
           }
         }
 
         transport.onerror = (err) => {
-          logger.error(`StreamableHttp error (session ${sessionId}):`, err)
+          logger.error(
+            `StreamableHttp error (session ${transport.sessionId}):`,
+            err,
+          )
           if (transport.sessionId) {
-            sessionCounter?.clear(
-              transport.sessionId,
-              false,
-              'transport emitting error',
-            )
+            sessionManager?.deleteSession(transport.sessionId)
             delete transports[transport.sessionId]
           }
         }
@@ -344,7 +353,7 @@ export async function configToStreamableHttp(args: ConfigToStreamableHttpArgs) {
         if (!responseEnded && transport.sessionId) {
           responseEnded = true
           logger.info(`Response ${event}`, transport.sessionId)
-          sessionCounter?.dec(transport.sessionId, `POST response ${event}`)
+          sessionManager?.getSession(transport.sessionId)?.dec()
         }
       }
 
@@ -366,22 +375,25 @@ export async function configToStreamableHttp(args: ConfigToStreamableHttpArgs) {
         headers,
       })
 
-      if (!sessionId || !transports[sessionId]) {
-        res.status(400).send('Invalid or missing session ID')
+      if (!sessionId) {
+        res.status(400).send('Missing session ID')
         return
       }
 
-      sessionCounter?.inc(
-        sessionId,
-        `${req.method} request for existing session`,
-      )
+      const session = sessionManager?.getSession(sessionId)
+      if (!session) {
+        res.status(400).send('Invalid session ID')
+        return
+      }
+
+      session.inc()
 
       let responseEnded = false
       const handleResponseEnd = (event: string) => {
         if (!responseEnded) {
           responseEnded = true
           logger.info(`Response ${event}`, sessionId)
-          sessionCounter?.dec(sessionId, `${req.method} response ${event}`)
+          session.dec()
         }
       }
 
