@@ -50,6 +50,11 @@ run_test() {
     echo ""
 }
 
+# Run Unit Tests with Jest
+echo "🧪 Unit Tests"
+echo "============="
+run_test "Jest Unit Tests" "npm run test:unit"
+
 # Run WebSocket tests
 echo "🔌 WebSocket Tests"
 echo "=================="

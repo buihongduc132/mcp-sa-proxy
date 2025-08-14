@@ -1,94 +1,80 @@
-# MCP SA Proxy Tests
+# MCP SuperAssistant Proxy Tests
 
-This directory contains comprehensive tests for the MCP Super Assistant Proxy.
-
-## Test Structure
-
-```
-tests/
-├── configs/           # Test configuration files
-├── websocket/         # WebSocket-specific tests
-├── integration/       # Integration and admin API tests
-├── unit/             # Unit tests (future)
-└── run-all-tests.sh  # Main test runner
-```
+This directory contains tests for the MCP SuperAssistant Proxy.
 
 ## Test Categories
 
-### WebSocket Tests (`tests/websocket/`)
-- **`test-websocket-timeout.js`** - Tests WebSocket timeout and keep-alive functionality
-- **`test-websocket-fix.sh`** - Integration test for WebSocket timeout fix
-- **`test-concurrent-websockets.js`** - Tests multiple concurrent WebSocket connections
-- **`test-client-metadata.js`** - Tests client metadata capture and tracking
+### Unit Tests
 
-### Integration Tests (`tests/integration/`)
-- **`test-admin-endpoints.sh`** - Tests admin API endpoints for monitoring
+Unit tests are written using Jest and are located in the `__tests__` directories throughout the codebase. These tests verify the functionality of individual components in isolation.
 
-### Configuration Files (`tests/configs/`)
-- **`test-config.json`** - Basic test configuration with filesystem server
-- **`test-config-simple.json`** - Minimal test configuration
+To run unit tests:
 
-## Running Tests
-
-### Run All Tests
 ```bash
-./tests/run-all-tests.sh
+npm run test:unit
 ```
 
-### Run Specific Test Categories
-```bash
-# WebSocket tests only
-./tests/run-websocket-tests.sh
+To run unit tests with coverage:
 
-# Integration tests only  
-./tests/run-integration-tests.sh
+```bash
+npm run test:coverage
 ```
 
-### Run Individual Tests
+### Integration Tests
+
+Integration tests verify that different components work together correctly.
+
+- **Admin Endpoints**: Tests the admin endpoints for monitoring and management.
+  ```bash
+  npm run test:admin
+  ```
+
+### WebSocket Tests
+
+Tests for the WebSocket transport functionality.
+
+- **WebSocket Timeout Fix**: Tests the WebSocket timeout handling.
+  ```bash
+  npm run test:websocket
+  ```
+
+- **Concurrent Connections**: Tests handling multiple WebSocket connections simultaneously.
+
+### Metadata Tests
+
+Tests for client metadata capture and handling.
+
+- **Client Metadata Capture**: Tests the capture and storage of client metadata.
+  ```bash
+  npm run test:metadata
+  ```
+
+## Running All Tests
+
+To run all tests:
+
 ```bash
-# Test WebSocket timeout fix
-./tests/websocket/test-websocket-fix.sh
-
-# Test client metadata capture
-cd tests/websocket && node test-client-metadata.js
-
-# Test admin endpoints
-./tests/integration/test-admin-endpoints.sh
+npm test
 ```
 
-## Test Requirements
+This will execute the `run-all-tests.sh` script, which runs all test categories in sequence and provides a summary of the results.
 
-- Node.js and npm installed
-- Project built (`npm run build`)
-- Available ports: 3006 (default test port)
+## Coverage Requirements
 
-## Test Features Covered
+The project aims for 90% code coverage across all files. The Jest configuration in `jest.config.js` enforces this threshold.
 
-### ✅ WebSocket Functionality
-- Connection establishment and management
-- Ping/pong keep-alive mechanism
-- Multiple concurrent connections
-- Connection timeout prevention
-- Client metadata capture
+## Adding New Tests
 
-### ✅ Admin API
-- Client monitoring endpoints
-- Connection statistics
-- Targeted client messaging
-- Client disconnection management
+When adding new functionality, please add corresponding tests:
 
-### ✅ Client Metadata Tracking
-- Browser information (Chrome, Firefox, Edge)
-- URL and domain tracking
-- Custom tags and routing groups
-- Extension-specific metadata
-- User and session identification
+1. For unit tests, add them to the appropriate `__tests__` directory.
+2. For integration or specialized tests, add them to the relevant subdirectory in `tests/`.
+3. Update `run-all-tests.sh` if you add a new test category.
 
-## Expected Test Results
+## Test Structure
 
-All tests should pass with:
-- ✅ Connections lasting longer than 30 seconds
-- ✅ Multiple clients connecting simultaneously
-- ✅ Rich metadata capture from initialize requests
-- ✅ Admin API returning client information
-- ✅ Proper cleanup on disconnection
+- `tests/run-all-tests.sh`: Main test runner script
+- `tests/integration/`: Integration tests
+- `tests/websocket/`: WebSocket-specific tests
+- `src/**/__tests__/`: Unit tests for specific components
+
