@@ -23,6 +23,8 @@ export interface ConfigToWsArgs {
   corsOrigin: CorsOptions['origin']
   healthEndpoints: string[]
   headers: Record<string, string>
+  wsPingInterval?: number
+  wsPongTimeout?: number
 }
 
 const setResponseHeaders = ({
@@ -46,6 +48,8 @@ export async function configToWs(args: ConfigToWsArgs) {
     corsOrigin,
     healthEndpoints,
     headers,
+    wsPingInterval = 25000,
+    wsPongTimeout = 5000,
   } = args
 
   logger.info(`  - config: ${configPath}`)
@@ -129,6 +133,8 @@ export async function configToWs(args: ConfigToWsArgs) {
     wsTransport = new WebSocketServerTransport({
       path: messagePath,
       server: httpServer,
+      pingInterval: wsPingInterval,
+      pongTimeout: wsPongTimeout,
     })
 
     await server.connect(wsTransport)

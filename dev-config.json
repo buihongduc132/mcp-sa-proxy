@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/bhd/Documents/Projects/bhd/orches-sa"]
+    },
+
+    "plw-dev": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"],
+      "env": {
+        "--cdp-endpoint": "http://localhost:9223",
+        "--user-data-dir": "/home/bhd/ChromeProfiles/dev",
+        "--browser": "/usr/bin/google-chrome"
+      }
+    }
+  }
+}

@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - WebSocket Timeout Fix
+
+### Added
+- **WebSocket Keep-Alive Mechanism**
+  - Implemented ping/pong keep-alive to prevent 30-second timeouts
+  - Configurable ping interval via `--wsPingInterval` option (default: 25000ms)
+  - Configurable pong timeout via `--wsPongTimeout` option (default: 5000ms)
+  - Automatic connection cleanup when pong timeout is exceeded
+  - Per-client timeout management with proper resource cleanup
+
+### Fixed
+- **Critical**: Fixed WebSocket connections timing out after 30 seconds
+  - Added ping/pong mechanism to maintain connection liveness
+  - Prevents infrastructure-level timeouts from dropping idle connections
+  - Improved connection stability for long-running WebSocket sessions
+
+### Enhanced
+- **WebSocket Transport Reliability**
+  - Better error handling and connection state management
+  - Proper cleanup of ping/pong timers on connection close
+  - Enhanced logging for WebSocket connection lifecycle events
+
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 

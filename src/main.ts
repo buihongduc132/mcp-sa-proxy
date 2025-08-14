@@ -139,6 +139,18 @@ export async function main() {
       description:
         'Session timeout in milliseconds. Only supported for stateful stdio→StreamableHttp and config→StreamableHttp. If not set, the session will only be deleted when client transport explicitly terminates the session.',
     })
+    .option('wsPingInterval', {
+      type: 'number',
+      default: 25000,
+      description:
+        'WebSocket ping interval in milliseconds. Default is 25000 (25 seconds). Set to 0 to disable ping/pong keep-alive.',
+    })
+    .option('wsPongTimeout', {
+      type: 'number',
+      default: 5000,
+      description:
+        'WebSocket pong timeout in milliseconds. Default is 5000 (5 seconds). Time to wait for pong response after sending ping.',
+    })
     .help()
     .parseSync()
 
@@ -179,6 +191,7 @@ export async function main() {
         logger,
       }),
       ...argv,
+      configPath: argv.config,
     }
 
     try {

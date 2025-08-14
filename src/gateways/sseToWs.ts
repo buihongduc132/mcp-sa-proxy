@@ -26,6 +26,8 @@ export interface SseToWsArgs {
   corsOrigin: CorsOptions['origin']
   healthEndpoints: string[]
   headers: Record<string, string>
+  wsPingInterval?: number
+  wsPongTimeout?: number
 }
 
 let sseClient: Client | undefined
@@ -76,6 +78,8 @@ export async function sseToWs(args: SseToWsArgs) {
     corsOrigin,
     healthEndpoints,
     headers,
+    wsPingInterval = 25000,
+    wsPongTimeout = 5000,
   } = args
 
   logger.info(`  - input SSE: ${inputSseUrl}`)
@@ -157,6 +161,8 @@ export async function sseToWs(args: SseToWsArgs) {
     wsTransport = new WebSocketServerTransport({
       path: messagePath,
       server: httpServer,
+      pingInterval: wsPingInterval,
+      pongTimeout: wsPongTimeout,
     })
 
     await outputServer.connect(wsTransport)

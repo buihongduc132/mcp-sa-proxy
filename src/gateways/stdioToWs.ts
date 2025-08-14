@@ -18,6 +18,8 @@ export interface StdioToWsArgs {
   logger: Logger
   corsOrigin: CorsOptions['origin']
   healthEndpoints: string[]
+  wsPingInterval?: number
+  wsPongTimeout?: number
 }
 
 export async function stdioToWs(args: StdioToWsArgs) {
@@ -28,6 +30,8 @@ export async function stdioToWs(args: StdioToWsArgs) {
     messagePath,
     logger,
     healthEndpoints,
+    wsPingInterval = 25000,
+    wsPongTimeout = 5000,
     corsOrigin,
   } = args
   logger.info(`  - host: ${host}`)
@@ -124,6 +128,8 @@ export async function stdioToWs(args: StdioToWsArgs) {
     wsTransport = new WebSocketServerTransport({
       path: messagePath,
       server: httpServer,
+      pingInterval: wsPingInterval,
+      pongTimeout: wsPongTimeout,
     })
 
     await server.connect(wsTransport)
