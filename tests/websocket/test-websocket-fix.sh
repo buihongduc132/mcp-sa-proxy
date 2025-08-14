@@ -33,7 +33,7 @@ echo "   Pong timeout: 3s"
 echo ""
 
 # Start server with custom timeout settings for faster testing
-node dist/index.js --config test-config.json --outputTransport ws --port 3006 \
+node ../../dist/index.js --config ../configs/test-config.json --outputTransport ws --port 3006 \
   --wsPingInterval 20000 --wsPongTimeout 3000 --logLevel info &
 
 SERVER_PID=$!

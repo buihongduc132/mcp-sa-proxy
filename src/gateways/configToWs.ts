@@ -109,6 +109,7 @@ export async function configToWs(args: ConfigToWsArgs) {
     )
 
     const app = express()
+    app.use(express.json()) // Add JSON body parser for admin endpoints
 
     if (corsOrigin) {
       app.use(cors({ origin: corsOrigin }))
@@ -128,6 +129,89 @@ export async function configToWs(args: ConfigToWsArgs) {
       })
     }
 
+    // Admin endpoints for monitoring
+    app.get('/admin/clients', (_req, res) => {
+      setResponseHeaders({ res, headers })
+      if (!wsTransport) {
+        res.status(503).json({ error: 'WebSocket transport not initialized' })
+        return
+      }
+
+      const clients = wsTransport.getConnectedClients()
+      const serverStats = {
+        connectedClients: wsTransport.getClientCount(),
+        servers: Array.from(serverManager.getServers().entries()).map(([name, server]) => ({
+          name,
+          connected: server.connected,
+          tools: server.tools.length,
+          resources: server.resources.length
+        }))
+      }
+
+      res.json({
+        timestamp: new Date().toISOString(),
+        stats: serverStats,
+        clients: clients
+      })
+    })
+
+    app.get('/admin/stats', (_req, res) => {
+      setResponseHeaders({ res, headers })
+      if (!wsTransport) {
+        res.status(503).json({ error: 'WebSocket transport not initialized' })
+        return
+      }
+
+      res.json({
+        timestamp: new Date().toISOString(),
+        connectedClients: wsTransport.getClientCount(),
+        servers: serverManager.getServers().size,
+        uptime: process.uptime()
+      })
+    })
+
+    // Send message to specific client
+    app.post('/admin/clients/:clientId/send', async (req, res) => {
+      setResponseHeaders({ res, headers })
+      if (!wsTransport) {
+        res.status(503).json({ error: 'WebSocket transport not initialized' })
+        return
+      }
+
+      const { clientId } = req.params
+      const { message } = req.body
+
+      if (!message) {
+        res.status(400).json({ error: 'Message is required' })
+        return
+      }
+
+      const success = await wsTransport.sendToClient(clientId, message)
+      if (success) {
+        res.json({ success: true, message: 'Message sent to client' })
+      } else {
+        res.status(404).json({ error: 'Client not found or not connected' })
+      }
+    })
+
+    // Disconnect specific client
+    app.delete('/admin/clients/:clientId', (req, res) => {
+      setResponseHeaders({ res, headers })
+      if (!wsTransport) {
+        res.status(503).json({ error: 'WebSocket transport not initialized' })
+        return
+      }
+
+      const { clientId } = req.params
+      const success = wsTransport.disconnectClient(clientId)
+
+      if (success) {
+        res.json({ success: true, message: 'Client disconnected' })
+      } else {
+        res.status(404).json({ error: 'Client not found' })
+      }
+    })
+
     const httpServer = createServer(app)
 
     wsTransport = new WebSocketServerTransport({
@@ -140,49 +224,63 @@ export async function configToWs(args: ConfigToWsArgs) {
     await server.connect(wsTransport)
 
     wsTransport.onmessage = (async (
-      message: JSONRPCMessage,
+      message: JSONRPCMessage | string,
       extra: { clientId: string },
     ) => {
       const { clientId } = extra
-      const isRequest = 'method' in message && 'id' in message
-      if (isRequest) {
-        logger.info(`WebSocket → Servers (client ${clientId}):`, message)
+      try {
+        let parsedMessage: JSONRPCMessage;
 
-        try {
-          const response = await serverManager.handleRequest(
-            message as JSONRPCRequest,
-          )
-          logger.info(`Servers → WebSocket (client ${clientId}):`)
-          logger.debug(`Servers → WebSocket (client ${clientId}):`, response)
-
-          await wsTransport!.send(response, {
-            relatedRequestId: (message as JSONRPCRequest).id,
-          })
-        } catch (err) {
-          logger.error(`Error handling request from client ${clientId}:`, err)
-          const errorResponse = {
-            jsonrpc: '2.0' as const,
-            id: (message as JSONRPCRequest).id,
-            error: {
-              code: -32000,
-              message: 'Internal error',
-            },
-          }
-          try {
-            await wsTransport!.send(errorResponse, {
-              relatedRequestId: (message as JSONRPCRequest).id,
-            })
-          } catch (sendErr) {
-            logger.error(
-              `Failed to send error response to client ${clientId}:`,
-              sendErr,
-            )
-          }
+        // Defensive parsing: The message might be a string or already an object.
+        if (typeof message === 'string') {
+          parsedMessage = JSON.parse(message);
+        } else {
+          parsedMessage = message;
         }
-      } else {
-        logger.info(`Notification from client ${clientId}:`, message)
+
+        const isRequest = 'method' in parsedMessage && 'id' in parsedMessage;
+        if (isRequest) {
+          logger.info(`WebSocket → Servers (client ${clientId}):`, parsedMessage);
+
+          try {
+            const response = await serverManager.handleRequest(
+              parsedMessage as JSONRPCRequest,
+            );
+            logger.info(`Servers → WebSocket (client ${clientId}):`);
+            logger.debug(`Servers → WebSocket (client ${clientId}):`, response);
+
+            await wsTransport!.send(response, {
+              relatedRequestId: (parsedMessage as JSONRPCRequest).id,
+            });
+          } catch (err) {
+            logger.error(`Error handling request from client ${clientId}:`, err);
+            const errorResponse = {
+              jsonrpc: '2.0' as const,
+              id: (parsedMessage as JSONRPCRequest).id,
+              error: {
+                code: -32000,
+                message: 'Internal error',
+              },
+            };
+            try {
+              await wsTransport!.send(errorResponse, {
+                relatedRequestId: (parsedMessage as JSONRPCRequest).id,
+              });
+            } catch (sendErr) {
+              logger.error(
+                `Failed to send error response to client ${clientId}:`,
+                sendErr,
+              );
+            }
+          }
+        } else {
+          logger.info(`Notification from client ${clientId}:`, parsedMessage);
+        }
+      } catch (err) {
+        logger.error(`Fatal error in WebSocket onmessage handler for client ${clientId}:`, err);
+        logger.error(`Original message:`, message);
       }
-    }) as any
+    }) as any;
 
     wsTransport.onconnection = (clientId: string) => {
       logger.info(`New WebSocket connection: ${clientId}`)

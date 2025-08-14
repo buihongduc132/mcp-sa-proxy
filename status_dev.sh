@@ -62,7 +62,7 @@ ERROR_COUNT=0
 
 # Check dev proxy log for errors (excluding harmless resource warnings)
 if [[ -f "logs/dev-proxy.log" ]]; then
-    DEV_ERRORS=$(grep -i "error\|fail\|not connected" logs/dev-proxy.log | grep -v "does not support resources" | wc -l 2>/dev/null || echo "0")
+    DEV_ERRORS=$(grep -i "error\|fail\|not connected" logs/dev-proxy.log 2>/dev/null | grep -v "does not support resources" | wc -l || echo "0")
     if [[ $DEV_ERRORS -gt 0 ]]; then
         echo "   ⚠️  Found $DEV_ERRORS recent errors in dev proxy log"
         ERROR_COUNT=$((ERROR_COUNT + DEV_ERRORS))
